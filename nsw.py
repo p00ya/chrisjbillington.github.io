@@ -270,6 +270,7 @@ def stochastic_sir(
     # Our results dataset over all trials, will extract conficence intervals at the end.
     trials_infected_today = np.zeros((n_trials, n_days))
     trials_R_eff = np.zeros((n_trials, n_days))
+    trials_exposures = np.zeros((n_trials, n_days))
     for i in range(n_trials):
         # print(f"trial {i}")
         # Randomly choose an R_eff and caseload from the distribution
@@ -291,6 +292,11 @@ def stochastic_sir(
         infectious = int(round(caseload * tau / R_eff))
         recovered = cumulative - infectious
         for j, vax_immune in enumerate(vaccine_immunity):
+            # This won't be consistent with the same day's infected or the
+            # previous day's exposures, because it's an independent RNG sample.
+            # However, it will be consistent with the previous day's infectious.
+            trials_exposures[i, j] = np.random.poisson(infectious * R0 / tau)
+
             # vax_immune is as fraction of the population, recovered and infectious are
             # in absolute nubmers so need to be normalised by population to get
             # susceptible fraction
@@ -302,11 +308,11 @@ def stochastic_sir(
             recovered += recovered_today
             cumulative += infected_today
             trials_infected_today[i, j] = infected_today
-            trials_R_eff[i, j] = R_eff 
+            trials_R_eff[i, j] = R_eff
 
     cumulative_infected = trials_infected_today.cumsum(axis=1) + initial_cumulative_cases
 
-    return trials_infected_today, cumulative_infected, trials_R_eff
+    return trials_infected_today, cumulative_infected, trials_R_eff, trials_exposures
 
 
 def projected_vaccine_immune_population(t, historical_doses_per_100):
@@ -566,7 +572,8 @@ new_smoothed = new_smoothed.clip(0, None)
 
 
 # Projection of daily case numbers:
-days_projection = (np.datetime64('2022-02-01') - dates[-1]).astype(int)
+LAST_DAY = np.datetime64('2022-02-01')
+days_projection = (LAST_DAY - dates[-1]).astype(int)
 t_projection = np.linspace(0, days_projection, days_projection + 1)
 
 # Construct a covariance matrix for the latest estimate in new_smoothed and R:
@@ -579,7 +586,7 @@ cov = np.array(
 
 if VAX:
     # Fancy stochastic SIR model
-    trials_infected_today, trials_cumulative, trials_R_eff = stochastic_sir(
+    trials_infected_today, trials_cumulative, trials_R_eff, trials_exposures = stochastic_sir(
         initial_caseload=new_smoothed[-1],
         initial_cumulative_cases=new.sum(),
         initial_R_eff=R[-1],
@@ -592,6 +599,21 @@ if VAX:
         n_trials=1000 if OLD else 10000, # just save some time if we're animating
         cov_caseload_R_eff=cov,
     )
+
+    exposures, (
+        exposures_lower,
+        exposures_upper,
+    ) = get_confidence_interval(trials_exposures)
+    pd.DataFrame({
+        'dates': np.arange(
+            dates[-1],
+            LAST_DAY + np.timedelta64(1, "D"),
+            dtype="datetime64[D]"
+        ),
+        'exposures': exposures,
+        'exposures_lower': exposures_lower,
+        'exposures_upper': exposures_upper,
+    }).to_csv("nsw_exposures.csv")
 
     new_projection, (
         new_projection_lower,
