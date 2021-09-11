@@ -900,6 +900,23 @@ ax2.fill_between(
     linewidth=0,
 )
 
+if VAX:
+    ax2.plot(
+        dates[-1].astype(int) + 0.5 + t_projection,
+        exposures.clip(0, 1e6),
+        color='green',
+        linestyle='--',
+        label='Exposures (projection)',
+    )
+    ax2.fill_between(
+        dates[-1].astype(int) + 0.5 + t_projection,
+        exposures_lower.clip(0, 1e6),
+        exposures_upper.clip(0, 1e6),
+        color='green',
+        alpha=0.3,
+        linewidth=0,
+    )
+
 ax2.set_ylabel(
     f"Daily {'non-isolating' if NONISOLATING else 'confirmed'} cases (log scale)"
 )
